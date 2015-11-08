@@ -189,6 +189,12 @@ CPPWARN = -Wall -Wextra -Wundef
 # Compiler settings
 ##############################################################################
 
+#
+# Programmer settings
+##############################################################################
+
+STLINK=/src/stlink
+
 ##############################################################################
 # Start of user section
 #
@@ -214,3 +220,7 @@ ULIBS =
 
 RULESPATH = $(CHIBIOS)/os/common/ports/ARMCMx/compilers/GCC
 include $(RULESPATH)/rules.mk
+
+flash:
+	$(STLINK)/st-flash write build/$(PROJECT).bin 0x8000000
+
