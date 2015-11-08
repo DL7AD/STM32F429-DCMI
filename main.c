@@ -25,13 +25,22 @@
 
 #include "ch.h"
 #include "hal.h"
-#include "stm32f4xx_gpio.h"
+//#include "stm32f4xx_gpio.h"
 #include "stm32f4xx_dma.h"
 #include "stm32f4xx_rcc.h"
 #include "stm32f4xx_dcmi.h"
 
 static uint8_t rxbuf[4];
 
+// Missing stm32f4xx.h def
+#define DMA_SxFCR_FTH                        ((uint32_t)0x00000003)
+#define DMA_SxFCR_DMDIS                      ((uint32_t)0x00000004)
+
+// Missing from stm32f4xx_dma.c
+#define DMA_Stream0_IT_MASK     (uint32_t)(DMA_LISR_FEIF0 | DMA_LISR_DMEIF0 | \
+                                           DMA_LISR_TEIF0 | DMA_LISR_HTIF0 | \
+                                           DMA_LISR_TCIF0)
+#define DMA_Stream1_IT_MASK     (uint32_t)(DMA_Stream0_IT_MASK << 6)
 
 void UB_OV9655_RAM2BMP(void);
 void UB_OV9655_Snapshot2RAM(void);
@@ -153,7 +162,6 @@ static uint8_t OV9655_QVGA_TAB[]=
  * Application entry point.
  */
 int main(void) {
-	msg_t status = MSG_OK;
 	systime_t tmo = MS2ST(100);
 
 	/*
@@ -186,10 +194,9 @@ int main(void) {
 	// QVGA = 320x240 Pixel
 	uint32_t anzahl = sizeof(OV9655_QVGA_TAB);
 	uint32_t i;
-	uint8_t buffer[32];
 	for(i=0; i<anzahl; i+=2) {
 		i2cAcquireBus(&I2CD2);
-		status = i2cMasterTransmitTimeout(&I2CD2, OV9655_I2C_ADR, &OV9655_QVGA_TAB[i], 2, rxbuf, 0, tmo);
+		i2cMasterTransmitTimeout(&I2CD2, OV9655_I2C_ADR, &OV9655_QVGA_TAB[i], 2, rxbuf, 0, tmo);
 		i2cReleaseBus(&I2CD2);
 		chThdSleepMilliseconds(3);
 	}
@@ -219,13 +226,13 @@ void UB_OV9655_Snapshot2RAM(void)
 		dma_mode=1;
 	}
 	// DMA enable
-	DMA_Cmd(OV9655_DCMI_DMA_STREAM, ENABLE);
+	DMA2_Stream1->CR |= (uint32_t)DMA_SxCR_EN;
 	// DCMI init
 	P_OV9655_InitDCMI();
 	// DCMI enable
-	DCMI_Cmd(ENABLE);
+	DCMI->CR |= (uint32_t)DCMI_CR_ENABLE;
 	// Capture enable
-	DCMI_CaptureCmd(ENABLE);
+	DCMI->CR |= (uint32_t)DCMI_CR_CAPTURE;
 }
 
 
@@ -263,55 +270,123 @@ void UB_OV9655_RAM2BMP(void)
 
 void P_OV9655_InitDMA()
 {
-	DMA_InitTypeDef  DMA_InitStructure;
+	//DMA_InitTypeDef  DMA_InitStructure;
 
 	// Clock enable
-	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA2, ENABLE);
+	RCC->AHB1ENR |= RCC_AHB1Periph_DMA2;
 
 	// DMA deinit
-	DMA_Cmd(OV9655_DCMI_DMA_STREAM, DISABLE);
-	DMA_DeInit(OV9655_DCMI_DMA_STREAM);
+	DMA2_Stream1->CR &= ~(uint32_t)DMA_SxCR_EN;
+
+	//DMA_DeInit(OV9655_DCMI_DMA_STREAM);
+
+	/* Disable the selected DMAy Streamx */
+	DMA2_Stream1->CR &= ~((uint32_t)DMA_SxCR_EN);
+	/* Reset DMAy Streamx control register */
+	DMA2_Stream1->CR  = 0;
+	/* Reset DMAy Streamx Number of Data to Transfer register */
+	DMA2_Stream1->NDTR = 0;
+	/* Reset DMAy Streamx peripheral address register */
+	DMA2_Stream1->PAR  = 0;
+	/* Reset DMAy Streamx memory 0 address register */
+	DMA2_Stream1->M0AR = 0;
+	/* Reset DMAy Streamx memory 1 address register */
+	DMA2_Stream1->M1AR = 0;
+	/* Reset DMAy Streamx FIFO control register */
+	DMA2_Stream1->FCR = (uint32_t)0x00000021; 
+	/* Reset interrupt pending bits for DMA2 Stream1 */
+	DMA2->LIFCR = DMA_Stream1_IT_MASK;
 
 
-	DMA_InitStructure.DMA_Channel = OV9655_DCMI_DMA_CHANNEL;
-	DMA_InitStructure.DMA_PeripheralBaseAddr = OV9655_DCMI_REG_DR_ADDRESS;
-	DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)&ov9655_ram_buffer;
+
+
+
+
+
+
+
+
+
+
+	/*DMA_InitStructure.DMA_Channel = OV9655_DCMI_DMA_CHANNEL;
 	DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralToMemory;
-	DMA_InitStructure.DMA_BufferSize = OV9655_PIXEL;
 	DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
 	DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
 	DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
 	DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_HalfWord;
 	DMA_InitStructure.DMA_Mode = DMA_Mode_Circular;
 	DMA_InitStructure.DMA_Priority = DMA_Priority_High;
-	DMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Enable;
-	DMA_InitStructure.DMA_FIFOThreshold = DMA_FIFOThreshold_Full;
 	DMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;
 	DMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;
-	DMA_Init(OV9655_DCMI_DMA_STREAM, &DMA_InitStructure);
+	DMA_Init(OV9655_DCMI_DMA_STREAM, &DMA_InitStructure);*/
+
+	DMA2_Stream1->CR &=	((uint32_t)~(DMA_SxCR_CHSEL | DMA_SxCR_MBURST | DMA_SxCR_PBURST |
+						DMA_SxCR_PL | DMA_SxCR_MSIZE | DMA_SxCR_PSIZE |
+						DMA_SxCR_MINC | DMA_SxCR_PINC | DMA_SxCR_CIRC |
+						DMA_SxCR_DIR));
+	DMA2_Stream1->CR |=	OV9655_DCMI_DMA_CHANNEL | DMA_DIR_PeripheralToMemory | DMA_PeripheralInc_Disable |
+						DMA_MemoryInc_Enable | DMA_PeripheralDataSize_Word | DMA_MemoryDataSize_HalfWord |
+						DMA_Mode_Circular | DMA_Priority_High | DMA_MemoryBurst_Single | DMA_PeripheralBurst_Single;
+
+
+	/*DMA_InitStructure.DMA_PeripheralBaseAddr = OV9655_DCMI_REG_DR_ADDRESS;
+	DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)&ov9655_ram_buffer;
+	DMA_InitStructure.DMA_BufferSize = OV9655_PIXEL;
+	DMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Enable;
+	DMA_InitStructure.DMA_FIFOThreshold = DMA_FIFOThreshold_Full;*/
+
+	DMA2_Stream1->FCR &= (uint32_t)~(DMA_SxFCR_DMDIS | DMA_SxFCR_FTH);
+	DMA2_Stream1->FCR |= DMA_FIFOMode_Enable | DMA_FIFOThreshold_Full;
+
+	DMA2_Stream1->NDTR = OV9655_PIXEL;
+	DMA2_Stream1->PAR = OV9655_DCMI_REG_DR_ADDRESS;
+	DMA2_Stream1->M0AR = (uint32_t)&ov9655_ram_buffer;
+
+
+	//DMA_Init(OV9655_DCMI_DMA_STREAM, &DMA_InitStructure);
+
+	
 }
 
 void P_OV9655_InitDCMI()
 {
-	DCMI_InitTypeDef DCMI_InitStructure;
+	//DCMI_InitTypeDef DCMI_InitStructure;
 
 	// Clock enable
-	RCC_AHB2PeriphClockCmd(RCC_AHB2Periph_DCMI, ENABLE);
+	RCC->AHB2ENR |= RCC_AHB2Periph_DCMI;
 
 	// DCMI init
-	DCMI_InitStructure.DCMI_CaptureMode = DCMI_CaptureMode_SnapShot;
+	/*DCMI_InitStructure.DCMI_CaptureMode = DCMI_CaptureMode_SnapShot;
 	DCMI_InitStructure.DCMI_SynchroMode = DCMI_SynchroMode_Hardware;
 	DCMI_InitStructure.DCMI_PCKPolarity = DCMI_PCKPolarity_Falling;
 	DCMI_InitStructure.DCMI_VSPolarity = DCMI_VSPolarity_High;
 	DCMI_InitStructure.DCMI_HSPolarity = DCMI_HSPolarity_High;
 	DCMI_InitStructure.DCMI_CaptureRate = DCMI_CaptureRate_All_Frame;
 	DCMI_InitStructure.DCMI_ExtendedDataMode = DCMI_ExtendedDataMode_8b; 
-	DCMI_Init(&DCMI_InitStructure);
+	DCMI_Init(&DCMI_InitStructure);*/
+
+	DCMI->CR &=	~((uint32_t)DCMI_CR_CM     | DCMI_CR_ESS   | DCMI_CR_PCKPOL |
+				DCMI_CR_HSPOL  | DCMI_CR_VSPOL | DCMI_CR_FCRC_0 | 
+				DCMI_CR_FCRC_1 | DCMI_CR_EDM_0 | DCMI_CR_EDM_1); 
+	DCMI->CR =	DCMI_CaptureMode_SnapShot | DCMI_SynchroMode_Hardware | DCMI_PCKPolarity_Falling |
+				DCMI_VSPolarity_High | DCMI_HSPolarity_High | DCMI_CaptureRate_All_Frame | DCMI_ExtendedDataMode_8b;
 }
 
 void P_OV9655_InitIO()
 {
-	GPIO_InitTypeDef GPIO_InitStructure;
+	palSetPadMode(GPIOA, 4, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOA, 6, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOB, 7, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOC, 9, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13));
+	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13));
+
+	/*GPIO_InitTypeDef GPIO_InitStructure;
 
 	//-----------------------------------------
 	// Clock Enable Port-A, Port-B, Port-C and Port-E
@@ -386,7 +461,7 @@ void P_OV9655_InitIO()
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
 	// Config von Port-E
-	GPIO_Init(GPIOE, &GPIO_InitStructure);
+	GPIO_Init(GPIOE, &GPIO_InitStructure);*/
 }
 
 

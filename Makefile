@@ -113,11 +113,7 @@ CSRC = $(STARTUPSRC) \
        $(PLATFORMSRC) \
        $(BOARDSRC) \
        $(TESTSRC) \
-       main.c \
-       stm32f4xx_gpio.c \
-       stm32f4xx_dcmi.c \
-       stm32f4xx_rcc.c \
-       stm32f4xx_dma.c
+       main.c
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.

@@ -29,7 +29,6 @@
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32f4xx.h"
 #include <stdint.h>
 
 /** @addtogroup STM32F4xx_StdPeriph_Driver
@@ -46,6 +45,7 @@
   * @brief  DMA Init structure definition
   */
 
+#if 0
 typedef struct
 {
   uint32_t DMA_Channel;            /*!< Specifies the channel used for the specified stream. 
@@ -103,6 +103,7 @@ typedef struct
                                         transaction. This parameter can be a value of @ref DMA_peripheral_burst
                                         @note The burst mode is possible only if the address Increment mode is enabled. */  
 }DMA_InitTypeDef;
+#endif
 
 /* Exported constants --------------------------------------------------------*/
 
@@ -553,6 +554,7 @@ typedef struct
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/ 
 
+#if 0
 /*  Function used to set the DMA configuration to the default reset state *****/ 
 void DMA_DeInit(DMA_Stream_TypeDef* DMAy_Streamx);
 
@@ -585,6 +587,7 @@ void DMA_ClearFlag(DMA_Stream_TypeDef* DMAy_Streamx, uint32_t DMA_FLAG);
 void DMA_ITConfig(DMA_Stream_TypeDef* DMAy_Streamx, uint32_t DMA_IT, FunctionalState NewState);
 ITStatus DMA_GetITStatus(DMA_Stream_TypeDef* DMAy_Streamx, uint32_t DMA_IT);
 void DMA_ClearITPendingBit(DMA_Stream_TypeDef* DMAy_Streamx, uint32_t DMA_IT);
+#endif
 
 #ifdef __cplusplus
 }

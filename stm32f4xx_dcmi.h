@@ -28,7 +28,6 @@
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32f4xx.h"
 #include <stdint.h>
 
 /** @addtogroup STM32F4xx_StdPeriph_Driver
@@ -43,6 +42,8 @@
 /** 
   * @brief   DCMI Init structure definition  
   */ 
+
+#if 0
 typedef struct
 {
   uint16_t DCMI_CaptureMode;      /*!< Specifies the Capture Mode: Continuous or Snapshot.
@@ -96,6 +97,7 @@ typedef struct
   uint8_t DCMI_LineEndCode;    /*!< Specifies the code of the line end delimiter. */
   uint8_t DCMI_FrameEndCode;   /*!< Specifies the code of the frame end delimiter. */
 } DCMI_CodesInitTypeDef;
+#endif
 
 /* Exported constants --------------------------------------------------------*/
 
@@ -267,6 +269,7 @@ typedef struct
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/ 
 
+#if 0
 /*  Function used to set the DCMI configuration to the default reset state ****/ 
 void DCMI_DeInit(void);
 
@@ -289,6 +292,7 @@ FlagStatus DCMI_GetFlagStatus(uint16_t DCMI_FLAG);
 void DCMI_ClearFlag(uint16_t DCMI_FLAG);
 ITStatus DCMI_GetITStatus(uint16_t DCMI_IT);
 void DCMI_ClearITPendingBit(uint16_t DCMI_IT);
+#endif
 
 #ifdef __cplusplus
 }

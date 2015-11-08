@@ -28,7 +28,6 @@
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32f4xx.h"
 #include <stdint.h>
 
 /** @addtogroup STM32F4xx_StdPeriph_Driver
@@ -40,6 +39,7 @@
   */ 
 
 /* Exported types ------------------------------------------------------------*/
+#if 0
 typedef struct
 {
   uint32_t SYSCLK_Frequency; /*!<  SYSCLK clock frequency expressed in Hz */
@@ -47,6 +47,7 @@ typedef struct
   uint32_t PCLK1_Frequency;  /*!<  PCLK1 clock frequency expressed in Hz */
   uint32_t PCLK2_Frequency;  /*!<  PCLK2 clock frequency expressed in Hz */
 }RCC_ClocksTypeDef;
+#endif
 
 /* Exported constants --------------------------------------------------------*/
 
@@ -434,7 +435,7 @@ typedef struct
 
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/ 
-
+#if 0
 /* Function used to set the RCC clock configuration to the default reset state */
 void RCC_DeInit(void);
 
@@ -493,7 +494,7 @@ FlagStatus RCC_GetFlagStatus(uint8_t RCC_FLAG);
 void RCC_ClearFlag(void);
 ITStatus RCC_GetITStatus(uint8_t RCC_IT);
 void RCC_ClearITPendingBit(uint8_t RCC_IT);
-
+#endif
 #ifdef __cplusplus
 }
 #endif
