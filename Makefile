@@ -114,8 +114,6 @@ CSRC = $(STARTUPSRC) \
        $(BOARDSRC) \
        $(TESTSRC) \
        main.c \
-       stm32f4xx_flash.c \
-       flash_helper.c \
        encoder/dct.c \
        encoder/jpegenc.c
 
