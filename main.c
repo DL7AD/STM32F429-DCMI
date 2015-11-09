@@ -85,7 +85,7 @@ CACHE_ALIGN conv Cb8x8[8][8];
 CACHE_ALIGN conv Cr8x8[8][8];
 uint64_t subsclk = 0;
 uint64_t readclk = 0;
-static uint8_t jpeg[35*1024];
+static uint8_t jpeg[50*1024];
 static uint32_t jpeg_pos = 0;
 
 uint8_t rxbuf[1];
@@ -272,8 +272,11 @@ void subsample3(const color_t R[16][16], const color_t G[16][16], const color_t 
 	}
 }
 
-inline void write_jpeg(const unsigned char buff[], const unsigned size)
+void write_jpeg(const unsigned char buff[], unsigned size)
 {
+	if(jpeg_pos+size > sizeof(jpeg)) // Buffer overflow protection
+		size = sizeof(jpeg)-jpeg_pos;
+	
 	memcpy(&jpeg[jpeg_pos], buff, size);
 	jpeg_pos += size;
 }
