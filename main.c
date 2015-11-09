@@ -26,7 +26,6 @@
 #include "stm32f4xx_dma.h"
 #include "stm32f4xx_rcc.h"
 #include "stm32f4xx_dcmi.h"
-#include "flash_helper.h"
 
 #include "encoder/arch.h"
 #include "encoder/bitmap.h"
