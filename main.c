@@ -162,8 +162,6 @@ void OV9655_InitDCMI(void);
 void OV9655_InitGPIO(void);
 void dma_avail(uint32_t flags);
 
-struct FlashSector flash[FLASH_SECTOR_COUNT];
-
 static uint32_t line = 0;
 
 /*
