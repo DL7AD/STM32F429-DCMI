@@ -26,6 +26,14 @@
 #include "stm32f4xx_dma.h"
 #include "stm32f4xx_rcc.h"
 #include "stm32f4xx_dcmi.h"
+#include "flash_helper.h"
+
+#include "encoder/arch.h"
+#include "encoder/bitmap.h"
+#include "encoder/dct.h"
+#include "encoder/jpegenc.h"
+
+#include <string.h>
 
 // Missing stm32f4xx.h def
 #define DMA_SxFCR_FTH                        ((uint32_t)0x00000003)
@@ -36,10 +44,14 @@
                                            DMA_LISR_TEIF0 | DMA_LISR_HTIF0 | \
                                            DMA_LISR_TCIF0)
 #define DMA_Stream1_IT_MASK     (uint32_t)(DMA_Stream0_IT_MASK << 6)
+#define RESERVED_MASK           (uint32_t)0x0F7D0F7D  
+#define TRANSFER_IT_ENABLE_MASK (uint32_t)(DMA_SxCR_TCIE | DMA_SxCR_HTIE | \
+                                           DMA_SxCR_TEIE | DMA_SxCR_DMEIE)
 
-#define OV9655_MAXX		160
-#define OV9655_MAXY		120
+#define OV9655_MAXX		320
+#define OV9655_MAXY		240
 #define OV9655_PIXEL	OV9655_MAXX*OV9655_MAXY
+#define OV9655_PIXEL2	OV9655_MAXX*16
 
 #define OV9655_DCMI_DMA_STREAM		DMA2_Stream1
 #define OV9655_DCMI_DMA_CHANNEL		DMA_Channel_1
@@ -50,7 +62,8 @@
 #define  OV9655_I2C_ADR        0x30  // Slave-Adresse vom OV9655
 
 
-uint16_t ov9655_ram_buffer[OV9655_PIXEL];
+uint16_t ov9655_ram_buffer[OV9655_PIXEL2];
+uint16_t ov9655_ram_buffer2[OV9655_PIXEL2];
 
 const uint8_t BMP_HEADER[] = {
 0x42,0x4D,0x36,0xE1,0x00,0x00,0x00,0x00,0x00,0x00, // ID=BM, Filsize=(120x160x3+54)
@@ -69,6 +82,14 @@ const uint8_t BMP_HEADER[] = {
 */
 };
 
+CACHE_ALIGN BGR RGB16x16[16][16];
+CACHE_ALIGN color_t R[16][16], G[16][16], B[16][16];
+CACHE_ALIGN conv Y8x8[2][2][8][8]; // four 8x8 blocks - 16x16
+CACHE_ALIGN conv Cb8x8[8][8];
+CACHE_ALIGN conv Cr8x8[8][8];
+uint64_t subsclk = 0;
+uint64_t readclk = 0;
+
 uint8_t rxbuf[1];
 
 // I2C interface #2
@@ -80,7 +101,7 @@ static const I2CConfig i2cfg2 = {
 
 static uint8_t OV9655_CONFIG[]=
 {
-0x00,0x00,0x01,0x80,0x02,0x80,0x03,0x02,0x04,0x03,0x09,0x01, // <= I2C camera for 160*120
+/*0x00,0x00,0x01,0x80,0x02,0x80,0x03,0x02,0x04,0x03,0x09,0x01, // <= I2C camera for 160*120
 0x0b,0x57,0x0e,0x61,0x0f,0x40,0x11,0x01,0x12,0x62,0x13,0xc7,
 0x14,0x3a,0x16,0x24,0x17,0x18,0x18,0x04,0x19,0x01,0x1a,0x81,
 0x1e,0x00,0x24,0x3c,0x25,0x36,0x26,0x72,0x27,0x08,0x28,0x08,
@@ -105,8 +126,8 @@ static uint8_t OV9655_CONFIG[]=
 0xbc,0x7f,0xbd,0x7f,0xbe,0x7f,0xbf,0x7f,0xbf,0x7f,0xc0,0xaa,
 0xc1,0xc0,0xc2,0x01,0xc3,0x4e,0xc6,0x05,0xc7,0x82,0xc9,0xe0,
 0xca,0xe8,0xcb,0xf0,0xcc,0xd8,0xcd,0x93,0x12,0x63,0x40,0x10,
-0x15,0x08
-/*0x00,0x00,0x01,0x80,0x02,0x80,0x03,0x02,0x04,0x03,0x09,0x01, // <= I2C camera for QVGA (only possible when external RAM configured)
+0x15,0x08*/
+0x00,0x00,0x01,0x80,0x02,0x80,0x03,0x02,0x04,0x03,0x09,0x01, // <= I2C camera for QVGA (only possible when external RAM configured)
 0x0b,0x57,0x0e,0x61,0x0f,0x40,0x11,0x01,0x12,0x62,0x13,0xc7,
 0x14,0x3a,0x16,0x24,0x17,0x18,0x18,0x04,0x19,0x01,0x1a,0x81,
 0x1e,0x00,0x24,0x3c,0x25,0x36,0x26,0x72,0x27,0x08,0x28,0x08,
@@ -131,7 +152,7 @@ static uint8_t OV9655_CONFIG[]=
 0xbc,0x7f,0xbd,0x7f,0xbe,0x7f,0xbf,0x7f,0xbf,0x7f,0xc0,0xaa,
 0xc1,0xc0,0xc2,0x01,0xc3,0x4e,0xc6,0x05,0xc7,0x81,0xc9,0xe0,
 0xca,0xe8,0xcb,0xf0,0xcc,0xd8,0xcd,0x93,0x12,0x63,0x40,0x10,
-0x15,0x08*/
+0x15,0x08
 };
 
 
@@ -140,6 +161,271 @@ void OV9655_Snapshot2RAM(void);
 void OV9655_InitDMA(void);
 void OV9655_InitDCMI(void);
 void OV9655_InitGPIO(void);
+void dma_avail(uint32_t flags);
+
+struct FlashSector flash[FLASH_SECTOR_COUNT];
+
+static uint32_t line = 0;
+
+/*
+RGB to YCbCr Conversion:
+*/
+// Y = 0.299*R + 0.587*G + 0.114*B
+__inline color RGB2Y(const color r, const color g, const color b)
+{
+	return (32768 + 19595*r + 38470*g + 7471*b) >> 16;
+}
+// Cb = 128 - 0.1687*R - 0.3313*G + 0.5*B
+__inline color RGB2Cb(const color r, const color g, const color b)
+{
+	return (8421376 - 11058*r - 21709*g + 32767*b) >> 16;
+}
+// Cr = 128 + 0.5*R - 0.4187*G - 0.0813*B
+__inline color RGB2Cr(const color r, const color g, const color b)
+{
+	return (8421376 + 32767*r - 27438*g - 5329*b) >> 16;
+}
+
+// chroma subsampling, i.e. converting a 16x16 RGB block into 8x8 Cb and Cr
+void subsample(const BGR rgb[16][16], conv cb[8][8], conv cr[8][8])
+{
+	unsigned r,c;
+	for (r = 0; r < 8; r++)
+	for (c = 0; c < 8; c++)
+	{
+		unsigned rr = (r<<1);
+		unsigned cc = (c<<1);
+
+		// calculating an average values
+		color_t R = (rgb[rr][cc].Red + rgb[rr][cc+1].Red
+				+ rgb[rr+1][cc].Red + rgb[rr+1][cc+1].Red) >> 2;
+		color_t G = (rgb[rr][cc].Green + rgb[rr][cc+1].Green
+				+ rgb[rr+1][cc].Green + rgb[rr+1][cc+1].Green) >> 2;
+		color_t B = (rgb[rr][cc].Blue + rgb[rr][cc+1].Blue
+				+ rgb[rr+1][cc].Blue + rgb[rr+1][cc+1].Blue) >> 2;
+
+		cb[r][c] = (conv)RGB2Cb(R, G, B)-128;
+		cr[r][c] = (conv)RGB2Cr(R, G, B)-128;
+	}
+}
+
+void subsample2(BGR rgb[16][16], conv Y[2][2][8][8], conv cb[8][8], conv cr[8][8])
+{
+	unsigned r, c;
+
+	for (r = 0; r < 16; r += 2)
+	for (c = 0; c < 16; c += 2)
+	{
+		//unsigned rr, cc;
+		unsigned i, j, k, l;
+		unsigned sR, sG, sB;
+		unsigned R, G, B;
+
+		i = r >> 3, j = c >> 3,
+		k = r & 7, l = c & 7;
+
+		sR = R = rgb[r][c].Red,
+		sG = G = rgb[r][c].Green,
+		sB = B = rgb[r][c].Blue;
+		Y[i][j][k][l] = RGB2Y(R, G, B)-128;
+
+		sR += R = rgb[r][c+1].Red,
+		sG += G = rgb[r][c+1].Green,
+		sB += B = rgb[r][c+1].Blue;
+		Y[i][j][k][l+1] = RGB2Y(R, G, B)-128;
+
+		sR += R = rgb[r+1][c].Red,
+		sG += G = rgb[r+1][c].Green,
+		sB += B = rgb[r+1][c].Blue;
+		Y[i][j][k+1][l] = RGB2Y(R, G, B)-128;
+
+		sR += R = rgb[r+1][c+1].Red,
+		sG += G = rgb[r+1][c+1].Green,
+		sB += B = rgb[r+1][c+1].Blue;
+		Y[i][j][k+1][l+1] = RGB2Y(R, G, B)-128;
+
+		// calculating an average values
+		R = sR >> 2,
+		G = sG >> 2,
+		B = sB >> 2;
+
+		//rr = r >> 1, cc = c >> 1;
+
+		cb[r>>1][c>>1] = (conv)RGB2Cb(R, G, B)-128;
+		cr[r>>1][c>>1] = (conv)RGB2Cr(R, G, B)-128;
+	}
+}
+
+void subsample3(const color_t R[16][16], const color_t G[16][16], const color_t B[16][16],
+				conv Y[2][2][8][8], conv cb[8][8], conv cr[8][8])
+{
+	unsigned r, c;
+
+	for (r = 0; r < 16; r += 2)
+	for (c = 0; c < 16; c += 2)
+	{
+		//unsigned rr, cc;
+		unsigned i, j, k, l;
+		unsigned sR, sG, sB;
+		unsigned R1, G1, B1;
+
+		i = r >> 3, j = c >> 3,
+		k = r & 7, l = c & 7;
+
+		sR = R1 = R[r][c],
+		sG = G1 = G[r][c],
+		sB = B1 = B[r][c];
+		Y[i][j][k][l] = RGB2Y(R1, G1, B1)-128;
+
+		sR += R1 = R[r][c+1],
+		sG += G1 = G[r][c+1],
+		sB += B1 = B[r][c+1];
+		Y[i][j][k][l+1] = RGB2Y(R1, G1, B1)-128;
+
+		sR += R1 = R[r+1][c],
+		sG += G1 = G[r+1][c],
+		sB += B1 = B[r+1][c];
+		Y[i][j][k+1][l] = RGB2Y(R1, G1, B1)-128;
+
+		sR += R1 = R[r+1][c+1],
+		sG += G1 = G[r+1][c+1],
+		sB += B1 = B[r+1][c+1];
+		Y[i][j][k+1][l+1] = RGB2Y(R1, G1, B1)-128;
+
+		// calculating an average values
+		R1 = sR >> 2,
+		G1 = sG >> 2,
+		B1 = sB >> 2;
+
+		//rr = r >> 1, cc = c >> 1;
+
+		cb[r>>1][c>>1] = (conv)RGB2Cb(R1, G1, B1)-128;
+		cr[r>>1][c>>1] = (conv)RGB2Cr(R1, G1, B1)-128;
+	}
+}
+
+static uint8_t jpeg[30*1024];
+static uint32_t jpeg_pos = 0;
+
+void write_jpeg(const unsigned char buff[], const unsigned size)
+{
+	memcpy(&jpeg[jpeg_pos], buff, size);
+	jpeg_pos += size;
+}
+
+void OV9655_Snapshot2RAM(void)
+{
+	huffman_start(OV9655_MAXY & -16, OV9655_MAXX & -16);
+
+	line = 0;
+	// DCMI init
+	OV9655_InitDCMI();
+	// DCMI enable
+	DCMI->CR |= (uint32_t)DCMI_CR_ENABLE;
+	// Capture enable
+	DCMI->CR |= (uint32_t)DCMI_CR_CAPTURE;
+
+	chThdSleepMilliseconds(2000);
+	huffman_stop();
+}
+
+void OV9655_RAM2BMP(void)
+{
+	uint32_t n;
+	for(n=0;n<jpeg_pos;n++) {
+		sdPut(&SD2, jpeg[n]);
+	}
+}
+
+void dma_avail(uint32_t flags)
+{
+	(void)flags;
+
+	palSetPad(GPIOG, 14);
+
+	memcpy(&ov9655_ram_buffer2, &ov9655_ram_buffer, OV9655_PIXEL2*sizeof(uint16_t));
+
+	unsigned x,xb,yb;
+	uint16_t color;
+
+	for (x = 0; x < OV9655_MAXX-15; x += 16)
+	{
+		for(yb=0;yb<16;yb++) {
+			for(xb=x;xb<x+16;xb++) {
+				color=ov9655_ram_buffer2[yb*OV9655_MAXX+xb];
+				RGB16x16[yb][xb-x].Blue = ((color&0x001F)<<3); // 5bit blue
+				RGB16x16[yb][xb-x].Green = ((color&0x07E0)>>3); // 6bit green
+				RGB16x16[yb][xb-x].Red = ((color&0xF800)>>8); // 5bit red
+			}
+		}
+
+		// getting subsampled Cb and Cr
+		subsample2(RGB16x16, Y8x8, Cb8x8, Cr8x8);
+		//subsample3(R, G, B, Y8x8, Cb8x8, Cr8x8);
+
+		dct3(Y8x8[0][0], Y8x8[0][0]);	// 1 Y-transform
+		dct3(Y8x8[0][1], Y8x8[0][1]);	// 2 Y-transform
+		dct3(Y8x8[1][0], Y8x8[1][0]);	// 3 Y-transform
+		dct3(Y8x8[1][1], Y8x8[1][1]);	// 4 Y-transform
+		dct3(Cb8x8, Cb8x8);				// Cb-transform
+		dct3(Cr8x8, Cr8x8);				// Cr-transform
+
+		huffman_encode(HUFFMAN_CTX_Y, (short*)Y8x8[0][0]);
+		huffman_encode(HUFFMAN_CTX_Y, (short*)Y8x8[0][1]);
+		huffman_encode(HUFFMAN_CTX_Y, (short*)Y8x8[1][0]);
+		huffman_encode(HUFFMAN_CTX_Y, (short*)Y8x8[1][1]);
+		huffman_encode(HUFFMAN_CTX_Cb, (short*)Cb8x8);
+		huffman_encode(HUFFMAN_CTX_Cr, (short*)Cr8x8);
+	}
+	palClearPad(GPIOG, 14);
+
+	DMA2->LIFCR = (uint32_t)(DMA_FLAG_TCIF1 & RESERVED_MASK);
+}
+
+void OV9655_InitDMA(void)
+{
+    const stm32_dma_stream_t *stream = STM32_DMA2_STREAM1;
+    dmaStreamAllocate(stream, 10, (stm32_dmaisr_t)dma_avail, NULL);
+    dmaStreamSetPeripheral(stream, ((uint32_t*)OV9655_DCMI_REG_DR_ADDRESS));
+    dmaStreamSetMemory0(stream, (uint32_t)&ov9655_ram_buffer);
+    dmaStreamSetTransactionSize(stream, OV9655_PIXEL2/sizeof(uint16_t));
+    dmaStreamSetMode(stream, OV9655_DCMI_DMA_CHANNEL | DMA_DIR_PeripheralToMemory | DMA_PeripheralInc_Disable |
+						DMA_MemoryInc_Enable | DMA_PeripheralDataSize_Word | DMA_MemoryDataSize_HalfWord |
+						DMA_Mode_Circular | DMA_Priority_High | DMA_MemoryBurst_Single | DMA_PeripheralBurst_Single | STM32_DMA_CR_TCIE /*| STM32_DMA_CR_DMEIE | STM32_DMA_CR_TEIE*/);
+    dmaStreamSetFIFO(stream, DMA_FIFOMode_Enable | DMA_FIFOThreshold_Full);
+    dmaStreamEnable(stream);
+}
+
+void OV9655_InitDCMI(void)
+{
+	// Clock enable
+	RCC->AHB2ENR |= RCC_AHB2Periph_DCMI;
+
+	// Configure DCMI
+	DCMI->CR &=	~((uint32_t)DCMI_CR_CM     | DCMI_CR_ESS   | DCMI_CR_PCKPOL |
+				DCMI_CR_HSPOL  | DCMI_CR_VSPOL | DCMI_CR_FCRC_0 | 
+				DCMI_CR_FCRC_1 | DCMI_CR_EDM_0 | DCMI_CR_EDM_1); 
+	DCMI->CR =	DCMI_CaptureMode_SnapShot | DCMI_SynchroMode_Hardware | DCMI_PCKPolarity_Falling |
+				DCMI_VSPolarity_High | DCMI_HSPolarity_High | DCMI_CaptureRate_All_Frame | DCMI_ExtendedDataMode_8b;
+}
+
+void OV9655_InitGPIO(void)
+{
+	palSetPadMode(GPIOA, 8, PAL_MODE_ALTERNATE(0)); // PA8             -> XCLK
+	RCC->CFGR = (RCC->CFGR & (uint32_t)0xF8FFFFFF) | (uint32_t)0x04000000;
+
+	palSetPadMode(GPIOA, 4, PAL_MODE_ALTERNATE(13)); // PA4=DCMI_HSYNC -> HSNYC
+	palSetPadMode(GPIOA, 6, PAL_MODE_ALTERNATE(13)); // PA6=DCMI_PCLK  -> PCLK  
+	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // PB6=DCMI_D5    -> D5
+	palSetPadMode(GPIOB, 7, PAL_MODE_ALTERNATE(13)); // PB7=DCMI_VSYNC -> VSYNC
+	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // PC6=DCMI_D0    -> D0
+	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // PC7=DCMI_D1    -> D1
+	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // PC8=DCMI_D2    -> D2
+	palSetPadMode(GPIOC, 9, PAL_MODE_ALTERNATE(13)); // PC9=DCMI_D3    -> D3
+	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // PE4=DCMI_D4    -> D4
+	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // PE5=DCMI_D6    -> D6
+	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // PE6=DCMI_D7    -> D7
+}
 
 
 int main(void) {
@@ -147,6 +433,7 @@ int main(void) {
 	chSysInit();
 
 	palSetPadMode(GPIOG, 13, PAL_MODE_OUTPUT_PUSHPULL);
+	palSetPadMode(GPIOG, 14, PAL_MODE_OUTPUT_PUSHPULL);
 
 	// Init I2C
 	i2cStart(&I2CD2, &i2cfg2);
@@ -180,107 +467,3 @@ int main(void) {
 		chThdSleepMilliseconds(100);
 	}
 }
-
-void OV9655_Snapshot2RAM(void)
-{
-	// DMA enable
-	DMA2_Stream1->CR |= (uint32_t)DMA_SxCR_EN;
-	// DCMI init
-	OV9655_InitDCMI();
-	// DCMI enable
-	DCMI->CR |= (uint32_t)DCMI_CR_ENABLE;
-	// Capture enable
-	DCMI->CR |= (uint32_t)DCMI_CR_CAPTURE;
-}
-
-void OV9655_RAM2BMP(void)
-{
-	uint32_t n,adr=0;
-	uint16_t color,x,y;
-	uint8_t r,g,b;
-
-	// Send BMP-Header
-	for(n=0;n<sizeof(BMP_HEADER);n++) {
-		sdPut(&SD2, BMP_HEADER[n]);
-	}
-
-	// Send color data
-	adr=0;
-	for(x=0;x<OV9655_MAXX;x++) {
-		for(y=0;y<OV9655_MAXY;y++) {
-
-			color=ov9655_ram_buffer[adr];
-			adr++;
-
-			r=((color&0xF800)>>8); // 5bit red
-			g=((color&0x07E0)>>3); // 6bit green
-			b=((color&0x001F)<<3); // 5bit blue
-			sdPut(&SD2, b);
-			sdPut(&SD2, g);
-			sdPut(&SD2, r);
-		}
-	}
-}
-
-void OV9655_InitDMA(void)
-{
-	RCC->AHB1ENR |= RCC_AHB1Periph_DMA2;			// Clock enable
-
-	DMA2_Stream1->CR &= ~(uint32_t)DMA_SxCR_EN;		// DMA deinit
-
-	DMA2_Stream1->CR &= ~((uint32_t)DMA_SxCR_EN);	// Disable the selected DMAy Streamx
-	DMA2_Stream1->CR  = 0;							// Reset DMAy Streamx control register
-	DMA2_Stream1->NDTR = 0;							// Reset DMAy Streamx Number of Data to Transfer register
-	DMA2_Stream1->PAR  = 0;							// Reset DMAy Streamx peripheral address register
-	DMA2_Stream1->M0AR = 0;							// Reset DMAy Streamx memory 0 address register
-	DMA2_Stream1->M1AR = 0;							// Reset DMAy Streamx memory 1 address register
-	DMA2_Stream1->FCR = (uint32_t)0x00000021;		// Reset DMAy Streamx FIFO control register
-	DMA2->LIFCR = DMA_Stream1_IT_MASK;				// Reset interrupt pending bits for DMA2 Stream1
-
-	DMA2_Stream1->CR &=	((uint32_t)~(DMA_SxCR_CHSEL | DMA_SxCR_MBURST | DMA_SxCR_PBURST |
-						DMA_SxCR_PL | DMA_SxCR_MSIZE | DMA_SxCR_PSIZE |
-						DMA_SxCR_MINC | DMA_SxCR_PINC | DMA_SxCR_CIRC |
-						DMA_SxCR_DIR));
-	DMA2_Stream1->CR |=	OV9655_DCMI_DMA_CHANNEL | DMA_DIR_PeripheralToMemory | DMA_PeripheralInc_Disable |
-						DMA_MemoryInc_Enable | DMA_PeripheralDataSize_Word | DMA_MemoryDataSize_HalfWord |
-						DMA_Mode_Circular | DMA_Priority_High | DMA_MemoryBurst_Single | DMA_PeripheralBurst_Single;
-
-	DMA2_Stream1->FCR &= (uint32_t)~(DMA_SxFCR_DMDIS | DMA_SxFCR_FTH);
-	DMA2_Stream1->FCR |= DMA_FIFOMode_Enable | DMA_FIFOThreshold_Full;
-
-	DMA2_Stream1->NDTR = OV9655_PIXEL;
-	DMA2_Stream1->PAR = OV9655_DCMI_REG_DR_ADDRESS;
-	DMA2_Stream1->M0AR = (uint32_t)&ov9655_ram_buffer;
-}
-
-void OV9655_InitDCMI(void)
-{
-	// Clock enable
-	RCC->AHB2ENR |= RCC_AHB2Periph_DCMI;
-
-	// Configure DCMI
-	DCMI->CR &=	~((uint32_t)DCMI_CR_CM     | DCMI_CR_ESS   | DCMI_CR_PCKPOL |
-				DCMI_CR_HSPOL  | DCMI_CR_VSPOL | DCMI_CR_FCRC_0 | 
-				DCMI_CR_FCRC_1 | DCMI_CR_EDM_0 | DCMI_CR_EDM_1); 
-	DCMI->CR =	DCMI_CaptureMode_SnapShot | DCMI_SynchroMode_Hardware | DCMI_PCKPolarity_Falling |
-				DCMI_VSPolarity_High | DCMI_HSPolarity_High | DCMI_CaptureRate_All_Frame | DCMI_ExtendedDataMode_8b;
-}
-
-void OV9655_InitGPIO(void)
-{
-	palSetPadMode(GPIOA, 8, PAL_MODE_ALTERNATE(0)); // PA8             -> XCLK
-	RCC->CFGR = (RCC->CFGR & (uint32_t)0xF0FFFFFF) | (uint32_t)0x08000000;
-
-	palSetPadMode(GPIOA, 4, PAL_MODE_ALTERNATE(13)); // PA4=DCMI_HSYNC -> HSNYC
-	palSetPadMode(GPIOA, 6, PAL_MODE_ALTERNATE(13)); // PA6=DCMI_PCLK  -> PCLK  
-	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // PB6=DCMI_D5    -> D5
-	palSetPadMode(GPIOB, 7, PAL_MODE_ALTERNATE(13)); // PB7=DCMI_VSYNC -> VSYNC
-	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // PC6=DCMI_D0    -> D0
-	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // PC7=DCMI_D1    -> D1
-	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // PC8=DCMI_D2    -> D2
-	palSetPadMode(GPIOC, 9, PAL_MODE_ALTERNATE(13)); // PC9=DCMI_D3    -> D3
-	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // PE4=DCMI_D4    -> D4
-	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // PE5=DCMI_D6    -> D6
-	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // PE6=DCMI_D7    -> D7
-}
-
