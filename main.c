@@ -50,7 +50,6 @@
 #include "stm32f4xx_dcmi.h"
 
 #include "encoder/arch.h"
-#include "encoder/bitmap.h"
 #include "encoder/dct.h"
 #include "encoder/jpegenc.h"
 

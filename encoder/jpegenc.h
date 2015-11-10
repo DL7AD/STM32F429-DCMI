@@ -41,12 +41,13 @@ void correct_color(conv data[64]);
 // Application should provide this function for JPEG stream flushing
 void write_jpeg(const unsigned char buff[], const unsigned size);
 
-//void write_APP0info(void);
-// should set width and height before writing
-//void write_SOF0info(const short height, const short width);
-//void write_SOSinfo(void);
-//void write_DQTinfo(void);
-//void write_DHTinfo(void);
+typedef unsigned char color_t;
+
+typedef struct {
+	color Blue;
+	color Green;
+	color Red;
+} BGR;
 
 typedef struct huffman_s
 {
