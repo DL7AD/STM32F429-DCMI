@@ -63,7 +63,6 @@
 #define OV9655_MAXX			640
 #define OV9655_MAXY			480
 #define OV9655_BUFFER_SIZE	OV9655_MAXX*16
-#define OV9655_BUFFER_NUM	5
 
 #define OV9655_DCMI_DMA_CHANNEL		DMA_Channel_1
 #define OV9655_DCMI_BASE_ADR		((uint32_t)0x50050000)
@@ -73,8 +72,8 @@
 #define  OV9655_I2C_ADR        0x30  /* Slave-address vom OV9655 */
 
 
-uint16_t ov9655_ram_buffer[OV9655_BUFFER_SIZE];
-uint16_t ov9655_ram_buffer2[OV9655_BUFFER_NUM][OV9655_BUFFER_SIZE];
+uint16_t ov9655_ram_buffer[6][OV9655_BUFFER_SIZE];
+//uint16_t ov9655_ram_buffer2[OV9655_BUFFER_NUM][OV9655_BUFFER_SIZE];
 volatile uint32_t buffNum = 0;
 
 CACHE_ALIGN BGR RGB16x16[16][16];
@@ -302,12 +301,13 @@ void OV9655_Snapshot2RAM(void)
 		while(buffNum <= lines) // Wait for data by DMA
 			(void)0;
 
+		palSetPad(GPIOG, 14);
 		for (x = 0; x < OV9655_MAXX-15; x += 16)
 		{
 			// Create 16x16 block
 			for(yb=0;yb<16;yb++) {
 				for(xb=x;xb<x+16;xb++) {
-					color=ov9655_ram_buffer2[lines%OV9655_BUFFER_NUM][yb*OV9655_MAXX+xb];
+					color=ov9655_ram_buffer[lines%2][yb*OV9655_MAXX+xb];
 					RGB16x16[yb][xb-x].Blue = ((color&0x001F)<<3); // 5bit blue
 					RGB16x16[yb][xb-x].Green = ((color&0x07E0)>>3); // 6bit green
 					RGB16x16[yb][xb-x].Red = ((color&0xF800)>>8); // 5bit red
@@ -319,12 +319,12 @@ void OV9655_Snapshot2RAM(void)
 			subsample2(RGB16x16, Y8x8, Cb8x8, Cr8x8);
 			//subsample3(R, G, B, Y8x8, Cb8x8, Cr8x8);
 
-			dct3(Y8x8[0][0], Y8x8[0][0]);	// 1 Y-transform
-			dct3(Y8x8[0][1], Y8x8[0][1]);	// 2 Y-transform
-			dct3(Y8x8[1][0], Y8x8[1][0]);	// 3 Y-transform
-			dct3(Y8x8[1][1], Y8x8[1][1]);	// 4 Y-transform
-			dct3(Cb8x8, Cb8x8);				// Cb-transform
-			dct3(Cr8x8, Cr8x8);				// Cr-transform
+			dct(Y8x8[0][0], Y8x8[0][0]);	// 1 Y-transform
+			dct(Y8x8[0][1], Y8x8[0][1]);	// 2 Y-transform
+			dct(Y8x8[1][0], Y8x8[1][0]);	// 3 Y-transform
+			dct(Y8x8[1][1], Y8x8[1][1]);	// 4 Y-transform
+			dct(Cb8x8, Cb8x8);				// Cb-transform
+			dct(Cr8x8, Cr8x8);				// Cr-transform
 
 			huffman_encode(HUFFMAN_CTX_Y, (short*)Y8x8[0][0]);
 			huffman_encode(HUFFMAN_CTX_Y, (short*)Y8x8[0][1]);
@@ -333,6 +333,7 @@ void OV9655_Snapshot2RAM(void)
 			huffman_encode(HUFFMAN_CTX_Cb, (short*)Cb8x8);
 			huffman_encode(HUFFMAN_CTX_Cr, (short*)Cr8x8);
 		}
+		palClearPad(GPIOG, 14);
 
 		lines++;
 	}
@@ -363,10 +364,8 @@ void dma_avail(uint32_t flags)
 {
 	(void)flags;
 
-	palSetPad(GPIOG, 14);
-	memcpy(&ov9655_ram_buffer2[buffNum%OV9655_BUFFER_NUM], &ov9655_ram_buffer, OV9655_BUFFER_SIZE*sizeof(uint16_t));
+	//memcpy(&ov9655_ram_buffer2[buffNum%OV9655_BUFFER_NUM], &ov9655_ram_buffer, OV9655_BUFFER_SIZE*sizeof(uint16_t));
 	buffNum++;
-	palClearPad(GPIOG, 14);
 
 	//DMA2->LIFCR = (uint32_t)(DMA_FLAG_TCIF1 & RESERVED_MASK);
 }
@@ -379,11 +378,12 @@ void OV9655_InitDMA(void)
     const stm32_dma_stream_t *stream = STM32_DMA2_STREAM1;
     dmaStreamAllocate(stream, 10, (stm32_dmaisr_t)dma_avail, NULL);
     dmaStreamSetPeripheral(stream, ((uint32_t*)OV9655_DCMI_REG_DR_ADDRESS));
-    dmaStreamSetMemory0(stream, (uint32_t)&ov9655_ram_buffer);
+    dmaStreamSetMemory0(stream, (uint32_t)&ov9655_ram_buffer[0]);
+    dmaStreamSetMemory1(stream, (uint32_t)&ov9655_ram_buffer[1]);
     dmaStreamSetTransactionSize(stream, OV9655_BUFFER_SIZE/sizeof(uint16_t));
     dmaStreamSetMode(stream, OV9655_DCMI_DMA_CHANNEL | DMA_DIR_PeripheralToMemory | DMA_PeripheralInc_Disable |
 						DMA_MemoryInc_Enable | DMA_PeripheralDataSize_Word | DMA_MemoryDataSize_HalfWord |
-						DMA_Mode_Circular | DMA_Priority_High | DMA_MemoryBurst_Single | DMA_PeripheralBurst_Single | STM32_DMA_CR_TCIE);
+						/*DMA_Mode_Circular*/ STM32_DMA_CR_DBM  | DMA_Priority_High | DMA_MemoryBurst_Single | DMA_PeripheralBurst_Single | STM32_DMA_CR_TCIE);
     dmaStreamSetFIFO(stream, DMA_FIFOMode_Enable | DMA_FIFOThreshold_Full);
     dmaStreamEnable(stream);
 }
@@ -418,7 +418,7 @@ void OV9655_InitGPIO(bool fast)
 	{
 		RCC->CFGR = (RCC->CFGR & (uint32_t)0xF8FFFFFF) | (uint32_t)0x04000000;
 	} else {
-		RCC->CFGR = (RCC->CFGR & (uint32_t)0xF8FFFFFF) | (uint32_t)0x05000000;
+		RCC->CFGR = (RCC->CFGR & (uint32_t)0xF8FFFFFF) | (uint32_t)0x05000000; // Speed
 		RCC->CFGR = (RCC->CFGR & (uint32_t)0xFF9FFFFF) | (uint32_t)0x00400000;
 	}
 
