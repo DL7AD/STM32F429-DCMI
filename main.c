@@ -88,11 +88,43 @@ static uint32_t jpeg_pos = 0;
 
 uint8_t rxbuf[1];
 
-// I2C interface #2
+// I2C interface
 static const I2CConfig i2cfg2 = {
     OPMODE_I2C,
     200000,
     FAST_DUTY_CYCLE_2,
+};
+
+static void txend1(UARTDriver *uartp) {
+	(void)uartp;
+}
+static void txend2(UARTDriver *uartp) {
+
+	(void)uartp;
+}
+static void rxerr(UARTDriver *uartp, uartflags_t e) {
+	(void)uartp;
+	(void)e;
+}
+static void rxchar(UARTDriver *uartp, uint16_t c) {
+	(void)uartp;
+	(void)c;
+}
+static void rxend(UARTDriver *uartp) {
+	(void)uartp;
+}
+
+// UART interface
+static UARTConfig uart_cfg_1 = {
+	txend1,
+	txend2,
+	rxend,
+	rxchar,
+	rxerr,
+	2000000,
+	0,
+	USART_CR2_LINEN,
+	0
 };
 
 // I2C camera configuration for VGA resolution
@@ -353,10 +385,7 @@ void OV9655_Snapshot2RAM(void)
   */
 void OV9655_RAM2SD(void)
 {
-	uint32_t n;
-	for(n=0;n<jpeg_pos;n++) {
-		sdPut(&SD2, jpeg[n]);
-	}
+	uartStartSend(&UARTD2, jpeg_pos, jpeg);
 }
 
 /**
@@ -444,16 +473,15 @@ int main(void) {
 	halInit();
 	chSysInit();
 
+	// Init I2C
 	palSetPadMode(GPIOG, 13, PAL_MODE_OUTPUT_PUSHPULL);
 	palSetPadMode(GPIOG, 14, PAL_MODE_OUTPUT_PUSHPULL);
-
-	// Init I2C
 	i2cStart(&I2CD2, &i2cfg2);
 
-	// Init serial (38k4 8n1 TXD=PD5 RXD=PD6)
-	sdStart(&SD2, NULL);
+	// Init UART (2Mbit 8n1 TXD=PD5 RXD=PD6)
 	palSetPadMode(GPIOD, 5, PAL_MODE_ALTERNATE(7));
 	palSetPadMode(GPIOD, 6, PAL_MODE_ALTERNATE(7));
+	uartStart(&UARTD2, &uart_cfg_1);
 
 	// Configure clock (fast clock otherwise the camera does not do I2C)
 	OV9655_InitGPIO(true);
