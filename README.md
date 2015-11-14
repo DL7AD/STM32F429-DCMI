@@ -1,4 +1,4 @@
-# STM32F429-DCMI usage example code (OV9655)
+# STM32F429-DCMI usage example code
 
 This program is made for a STM32F429 discovery board AND OV9655 camera. The demo program samples a 320x240px image from a OV9655 camera into the SRAM and encodes it into JPEG in real time. It then transmits the image by serial to the computer where it can be displayed. The image is encoded into JPEG in real time because the STM32F429 doesn't provide enough memory to hold a raw image (320x240px) in it's SRAM. The STM32F429 discovery board has actually external SDRAM but the project's goal is it, to solve this problem without any external SDRAM.
 
@@ -22,9 +22,11 @@ JPEG Output  | 50kB
 
 
 ![Demo capture](https://raw.githubusercontent.com/DL7AD/STM32F429-DCMI/master/example.jpg)
+
 Demo capture taken by STM32F429 with OV9655
 
 ![Demo capture](https://github.com/DL7AD/STM32F429-DCMI/blob/master/stm32f4_ov9655.jpg)
+
 STM32F429 discovery board connected to Omnivision OV9655
 
 
@@ -79,8 +81,8 @@ To be able to build this project, a modification in the ChibiOS submodule must b
 #define STM32F429xx           /*!< STM32F429VG, STM32F429VI, STM32F429ZG, STM32F429ZI, STM32F429BG, STM32F429BI, STM32F429NG, 
                                    STM32F439NI, STM32F429IG  and STM32F429II Devices */
 ```
-- The compile it with *make*
-- And then flash the STM32 with *make flash* (You probably have to adjust the variable *STLINK* in the Makefile)
+- The compile it with **make**
+- And then flash the STM32 with **make flash** (You probably have to adjust the variable **STLINK** in the Makefile)
 
 Taking photos
 -------------
@@ -89,3 +91,7 @@ Taking photos
 - When the user button is pressed the picture will be taken and the JPEG encoded picture will be transmitted by UART on PIN PD5. The UART output must be dumped into a file on the computer. The green LED will blink again if UART transmission is done. (*Important* Programs like minicom are not sufficient to dump the JPEG because they to not dump unprintable chars like 0x00 into the file)
 - The red LED on the discovery board displays when the algorithm is encoding JPEG.
 - _Note: At the moment there's a bug in the software. The STM32 has to bet reset after each image transmission._
+
+Author
+------
+sven.steudte@gmail.com
