@@ -88,9 +88,9 @@ Taking photos
 -------------
 - The programm initializes the camera once at startup by I2C.
 - Thereafter the green LED on the discovery board will blink green to signal, that the board is idling.
-- When the user button is pressed the picture will be taken and the JPEG encoded picture will be transmitted by UART on PIN PD5. The UART output must be dumped into a file on the computer. The green LED will blink again if UART transmission is done. (*Important* Programs like minicom are not sufficient to dump the JPEG because they to not dump unprintable chars like 0x00 into the file)
+- When the user button is pressed the picture will be taken and the JPEG encoded picture will be transmitted by UART on PIN PD5. The UART output must be dumped into a file on the computer. The green LED will blink again if UART transmission is done. (**Important** Programs like minicom are not sufficient to dump the JPEG because they to not dump unprintable chars like 0x00 into the file)
 - The red LED on the discovery board displays when the algorithm is encoding JPEG.
-- _Note: At the moment there's a bug in the software. The STM32 has to bet reset after each image transmission._
+- _Note: At the moment there's a bug in the software. The STM32 has to be reset after each image transmission._
 
 Author
 ------
