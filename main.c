@@ -36,8 +36,8 @@
 	PC6=DCMI_D0    -> D0
 	PC7=DCMI_D1    -> D1
 	PC8=DCMI_D2    -> D2
-	PC9=DCMI_D3    -> D3
-	PE4=DCMI_D4    -> D4
+	PE4=DCMI_D3    -> D3
+	PB6=DCMI_D4    -> D4
 	PE5=DCMI_D6    -> D6
 	PE6=DCMI_D7    -> D7
 	RET and PWDN can be left unconnected
@@ -460,8 +460,8 @@ void OV9655_InitGPIO(bool fast)
 	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // PC6=DCMI_D0    -> D0
 	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // PC7=DCMI_D1    -> D1
 	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // PC8=DCMI_D2    -> D2
-	palSetPadMode(GPIOC, 9, PAL_MODE_ALTERNATE(13)); // PC9=DCMI_D3    -> D3
-	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // PE4=DCMI_D4    -> D4
+	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // PE4=DCMI_D3    -> D3
+	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // PB6=DCMI_D4    -> D4
 	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // PE5=DCMI_D6    -> D6
 	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // PE6=DCMI_D7    -> D7
 }
