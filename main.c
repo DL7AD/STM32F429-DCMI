@@ -29,17 +29,20 @@
 
 	The camera must be connected to
 
-	PA4=DCMI_HSYNC -> HSNYC (or HREF)
-	PA6=DCMI_PCLK  -> PCLK
-	PB6=DCMI_D5    -> D5
-	PB7=DCMI_VSYNC -> VSYNC
-	PC6=DCMI_D0    -> D0
-	PC7=DCMI_D1    -> D1
-	PC8=DCMI_D2    -> D2
-	PE4=DCMI_D3    -> D3
-	PB6=DCMI_D4    -> D4
-	PE5=DCMI_D6    -> D6
-	PE6=DCMI_D7    -> D7
+	Camera Data pin		STM32 designator	Possible Hardware Pins for DCMI		Pin used in this implementation
+	HREF				HSYNC				PA4 PH8								PA4
+	PCLK				PIXCLK				PA6									PA6
+	VSYNC				VSYNC				PB7 PG9 PI5							PB7
+	D2					D0					PA9 PC6 PH9							PC6
+	D3					D1					PA10 PC7 PH10						PC7
+	D4					D2					PC8 PE0 PG10 PH11					PC8
+	D5					D3					PC9 PE1 PG11 PH12					PE1
+	D6					D4					PC11 PE4 PH14						PE4
+	D7					D5					PB6 PD3 PI4							PB6
+	D8					D6					PB8 PE5 PI6							PE5
+	D9					D7					PB9 PE6 PI7							PE6
+	XCLK				none				PA8 (clockout, not DCMI specific)	PA8
+
 	RET and PWDN can be left unconnected
 */
 
@@ -127,7 +130,7 @@ static UARTConfig uart_cfg_1 = {
 	0
 };
 
-// I2C camera configuration for VGA resolution
+// I2C camera configuration for VGA/QVGA resolution
 static uint8_t OV9655_CONFIG[]=
 {
 
@@ -330,7 +333,7 @@ void OV9655_Snapshot2RAM(void)
 
 	// Encode JPEG data
 	uint32_t lines = 0;
-	while(lines < OV9655_MAXY / 16) // FIXME: Somehow the STM32 only produces 29 interrupts instead of 30
+	while(lines < OV9655_MAXY / 16)
 	{
 		unsigned x,xb,yb;
 		uint16_t color;
@@ -453,17 +456,17 @@ void OV9655_InitGPIO(bool fast)
 		RCC->CFGR = (RCC->CFGR & (uint32_t)0xFF9FFFFF) | (uint32_t)0x00400000;
 	}
 
-	palSetPadMode(GPIOA, 4, PAL_MODE_ALTERNATE(13)); // PA4=DCMI_HSYNC -> HSNYC
-	palSetPadMode(GPIOA, 6, PAL_MODE_ALTERNATE(13)); // PA6=DCMI_PCLK  -> PCLK  
-	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // PB6=DCMI_D5    -> D5
-	palSetPadMode(GPIOB, 7, PAL_MODE_ALTERNATE(13)); // PB7=DCMI_VSYNC -> VSYNC
-	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // PC6=DCMI_D0    -> D0
-	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // PC7=DCMI_D1    -> D1
-	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // PC8=DCMI_D2    -> D2
-	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // PE4=DCMI_D3    -> D3
-	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // PB6=DCMI_D4    -> D4
-	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // PE5=DCMI_D6    -> D6
-	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // PE6=DCMI_D7    -> D7
+	palSetPadMode(GPIOA, 4, PAL_MODE_ALTERNATE(13)); // HSYNC -> PA4
+	palSetPadMode(GPIOA, 6, PAL_MODE_ALTERNATE(13)); // PCLK  -> PA6
+	palSetPadMode(GPIOB, 7, PAL_MODE_ALTERNATE(13)); // VSYNC -> PB7
+	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // D5    -> PC6
+	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // D0    -> PC7
+	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // D1    -> PC8
+	palSetPadMode(GPIOE, 1, PAL_MODE_ALTERNATE(13)); // D2    -> PE1
+	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // D3    -> PE4
+	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // D4    -> PB6
+	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // D6    -> PE5
+	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // D7    -> PE6
 }
 
 /**
