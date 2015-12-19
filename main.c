@@ -459,12 +459,12 @@ void OV9655_InitGPIO(bool fast)
 	palSetPadMode(GPIOA, 4, PAL_MODE_ALTERNATE(13)); // HSYNC -> PA4
 	palSetPadMode(GPIOA, 6, PAL_MODE_ALTERNATE(13)); // PCLK  -> PA6
 	palSetPadMode(GPIOB, 7, PAL_MODE_ALTERNATE(13)); // VSYNC -> PB7
-	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // D5    -> PC6
-	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // D0    -> PC7
-	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // D1    -> PC8
-	palSetPadMode(GPIOE, 1, PAL_MODE_ALTERNATE(13)); // D2    -> PE1
-	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // D3    -> PE4
-	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // D4    -> PB6
+	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // D0    -> PC6
+	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // D1    -> PC7
+	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // D2    -> PC8
+	palSetPadMode(GPIOE, 1, PAL_MODE_ALTERNATE(13)); // D3    -> PE1
+	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // D4    -> PE4
+	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // D5    -> PB6
 	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // D6    -> PE5
 	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // D7    -> PE6
 }
