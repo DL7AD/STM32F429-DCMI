@@ -182,20 +182,14 @@ AOPT =
 TOPT = -mthumb -DTHUMB
 
 # Define C warning options here
-CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes
+CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes -std=c99
 
 # Define C++ warning options here
-CPPWARN = -Wall -Wextra -Wundef
+CPPWARN = -Wall -Wextra -Wundef -std=c99
 
 #
 # Compiler settings
 ##############################################################################
-
-#
-# Programmer settings
-##############################################################################
-
-STLINK=/src/stlink
 
 ##############################################################################
 # Start of user section
@@ -224,5 +218,5 @@ RULESPATH = $(CHIBIOS)/os/common/ports/ARMCMx/compilers/GCC
 include $(RULESPATH)/rules.mk
 
 flash:
-	$(STLINK)/st-flash write build/$(PROJECT).bin 0x8000000
+	st-flash write build/$(PROJECT).bin 0x8000000
 
