@@ -2,7 +2,7 @@
 
 This program is made for a STM32F429 discovery board AND OV9655 camera. The demo program samples a 320x240px image from a OV9655 camera into the SRAM and encodes it into JPEG. It then transmits the image by serial to the computer where it can be displayed. The STM32F429 discovery board has actually external SDRAM but the project's goal is it, to solve this problem without any external SDRAM.
 
-**Anvantages:** No external memory needed, small capture outputs, 1/80sec shutter time
+**Anvantages:** No external memory needed, small capture outputs, 1/80sec shutter time<br>
 **Disadvantages:** No VGA possible (only QVGA)
 
 ![Demo capture](https://raw.githubusercontent.com/DL7AD/STM32F429-DCMI/master/example.jpg)
