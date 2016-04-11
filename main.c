@@ -1,96 +1,28 @@
-/*
-    ChibiOS - Copyright (C) 2006..2015 Giovanni Di Sirio
-
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-        http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
-*/
-/*
-	Takes an VGA image of OV9655 camera and encodes it in realtime to JPEG.
-	The image has a capture time of 264ms.
-	For sampling a picture PA0 must be pulled high. (User button on STM32F429 discovery board)
-	The picture is then transmitted by serial interface on PD5 (38k2 8n1).
-	PG13 is blinking (Green LED on STM32F429 discovery board) when the uC is
-	ideling. So when the picture has been transmitted completely PG13 is
-	blinking.
-
-	This example does not need any external SDRAM. It just uses it's internal
-	SRAM. So this example should also work on the STM32F407 discovery board.
-
-	The inital code came from http://mikrocontroller.bplaced.net/wordpress/?page_id=1115
-
-	The camera must be connected to
-
-	Camera Data pin		STM32 designator	Possible Hardware Pins for DCMI		Pin used in this implementation
-	HREF				HSYNC				PA4 PH8								PA4
-	PCLK				PIXCLK				PA6									PA6
-	VSYNC				VSYNC				PB7 PG9 PI5							PB7
-	D2					D0					PA9 PC6 PH9							PC6
-	D3					D1					PA10 PC7 PH10						PC7
-	D4					D2					PC8 PE0 PG10 PH11					PC8
-	D5					D3					PC9 PE1 PG11 PH12					PE1
-	D6					D4					PC11 PE4 PH14						PE4
-	D7					D5					PB6 PD3 PI4							PB6
-	D8					D6					PB8 PE5 PI6							PE5
-	D9					D7					PB9 PE6 PI7							PE6
-	XCLK				none				PA8 (clockout, not DCMI specific)	PA8
-
-	RET and PWDN can be left unconnected
-*/
+/**
+  * This is the OV2640 driver
+  *
+  */
 
 #include "ch.h"
 #include "hal.h"
 #include "stm32f4xx_rcc.h"
 #include "stm32f4xx_dcmi.h"
-
-#include "encoder/arch.h"
-#include "encoder/dct.h"
-#include "encoder/jpegenc.h"
-
 #include <string.h>
 
-#define QVGA
+#define OV2640_BUFFER_SIZE		150*1024
+#define OV2640_I2C_ADR			0x30
+#define DCMI_BASE_ADR			((uint32_t)0x50050000)
+#define DCMI_REG_DR_OFFSET		0x28
+#define DCMI_REG_DR_ADDRESS		(DCMI_BASE_ADR | DCMI_REG_DR_OFFSET)
 
-#ifdef QVGA
-#define OV9655_MAXX			320
-#define OV9655_MAXY			240
-#else
-#define OV9655_MAXX			640
-#define OV9655_MAXY			480
-#endif
-
-#define OV9655_BUFFER_SIZE	150*1024
-
-#define OV9655_DCMI_BASE_ADR		((uint32_t)0x50050000)
-#define OV9655_DCMI_REG_DR_OFFSET	0x28
-#define OV9655_DCMI_REG_DR_ADDRESS	(OV9655_DCMI_BASE_ADR | OV9655_DCMI_REG_DR_OFFSET)
-
-#define  OV9655_I2C_ADR        0x30  /* Slave-address vom OV9655 */
-
-
-uint8_t ov9655_ram_buffer[OV9655_BUFFER_SIZE];
-volatile uint32_t buffNum = 0;
-
-uint64_t subsclk = 0;
-uint64_t readclk = 0;
-uint32_t jpeg_pos = 0;
-bool samplingFinished;
-
-uint8_t rxbuf[1];
+uint8_t ov2640_ram_buffer[OV2640_BUFFER_SIZE];
+bool ov2640_samplingFinished;
 
 // I2C interface
-static const I2CConfig i2cfg2 = {
-    OPMODE_I2C,
-    200000,
-    FAST_DUTY_CYCLE_2,
+const I2CConfig i2cfg2 = {
+	OPMODE_I2C,
+	75000,
+	STD_DUTY_CYCLE,
 };
 
 // UART interface
@@ -106,10 +38,9 @@ static UARTConfig uart_cfg_1 = {
 	0
 };
 
-// I2C camera configuration for QVGA resolution
-static const uint8_t OV9655_CONFIG[] =
+// I2C camera configuration
+static const uint8_t OV2640_CONFIG[] =
 {
-
      0xFF, 0x01,
      0x12, 0x80,
 
@@ -439,37 +370,33 @@ static const uint8_t OV9655_CONFIG[] =
 0xFF, 0x01,
 0x04, 0x08,
 0xff, 0xff
-
-
-
 };
 
 
-void OV9655_RAM2SD(void);
-bool OV9655_Snapshot2RAM(void);
-void OV9655_InitDMA(void);
-void OV9655_InitDCMI(void);
-void OV9655_InitGPIO(void);
+void OV2640_RAM2SD(void);
+bool OV2640_Snapshot2RAM(void);
+void OV2640_InitDMA(void);
+void OV2640_InitDCMI(void);
+void OV2640_InitGPIO(void);
 void dma_avail(uint32_t flags);
 
 /**
   * Captures an image from the camera.
-  * Returns false in case of an error.
   */
-bool OV9655_Snapshot2RAM(void)
+bool OV2640_Snapshot2RAM(void)
 {
-	palSetPad(GPIOG, 14);
+	palClearPad(GPIOC, 15);
 
 	// DCMI init
-	OV9655_InitDCMI();
+	OV2640_InitDCMI();
 
-	// Encode JPEG data
-	samplingFinished = false;
+	// Receive JPEG data
+	ov2640_samplingFinished = false;
 	systime_t timeout = chVTGetSystemTimeX() + MS2ST(3000); // Timeout 1sec
-	while(!samplingFinished && chVTGetSystemTimeX() < timeout)
+	while(!ov2640_samplingFinished && chVTGetSystemTimeX() < timeout)
 		chThdSleepMilliseconds(1);
 
-	palClearPad(GPIOG, 14);
+	palSetPad(GPIOC, 15);
 
 	return true;
 }
@@ -477,57 +404,51 @@ bool OV9655_Snapshot2RAM(void)
 /**
   * Transmits JPEG encoded buffer by serial
   */
-void OV9655_RAM2SD(void)
+void OV2640_RAM2SD(void)
 {
 	uint32_t i;
 	for(i=0; i<150; i++)
 	{
-		uartStartSend(&UARTD2, 1024, &ov9655_ram_buffer[i*1024]);
+		uartStartSend(&UARTD4, 1024, &ov2640_ram_buffer[i*1024]);
 		chThdSleepMilliseconds(100);
 	}
 }
 
-/**
-  * ISR callback called when DCMI buffer moved into RAM by DMA completly
-  * Buffer size: OV9655_BUFFER_SIZE = OV9655_MAXX * 16 * bytes
-  * Double buffer mode is activated.
-  */
-void dma_avail(uint32_t flags)
+void OV2640_dma_avail(uint32_t flags)
 {
 	(void)flags;
-	samplingFinished = true;
+	ov2640_samplingFinished = true;
 	dmaStreamDisable(STM32_DMA2_STREAM1);
 }
 
 /**
   * Initializes DMA
   */
-void OV9655_InitDMA(void)
+void OV2640_InitDMA(void)
 {
-    const stm32_dma_stream_t *stream = STM32_DMA2_STREAM1;
-    dmaStreamAllocate(stream, 10, (stm32_dmaisr_t)dma_avail, NULL);
-    dmaStreamSetPeripheral(stream, ((uint32_t*)OV9655_DCMI_REG_DR_ADDRESS));
-    dmaStreamSetMemory0(stream, (uint32_t)ov9655_ram_buffer);
-    dmaStreamSetTransactionSize(stream, OV9655_BUFFER_SIZE);
-    dmaStreamSetMode(stream, STM32_DMA_CR_CHSEL(1) | STM32_DMA_CR_DIR_P2M |
-							STM32_DMA_CR_MINC | STM32_DMA_CR_PSIZE_WORD |
-							STM32_DMA_CR_MSIZE_WORD | STM32_DMA_CR_MBURST_SINGLE |
-							STM32_DMA_CR_PBURST_SINGLE | STM32_DMA_CR_TCIE);
-    dmaStreamSetFIFO(stream, STM32_DMA_FCR_FTH_HALF | STM32_DMA_FCR_DMDIS);
-    dmaStreamEnable(stream);
+	const stm32_dma_stream_t *stream = STM32_DMA2_STREAM1;
+	dmaStreamAllocate(stream, 2, (stm32_dmaisr_t)OV2640_dma_avail, NULL);
+	dmaStreamSetPeripheral(stream, ((uint32_t*)DCMI_REG_DR_ADDRESS));
+	dmaStreamSetMemory0(stream, (uint32_t)ov2640_ram_buffer);
+	dmaStreamSetTransactionSize(stream, OV2640_BUFFER_SIZE);
+	dmaStreamSetMode(stream, STM32_DMA_CR_CHSEL(1) | STM32_DMA_CR_DIR_P2M |
+							 STM32_DMA_CR_MINC | STM32_DMA_CR_PSIZE_WORD |
+							 STM32_DMA_CR_MSIZE_WORD | STM32_DMA_CR_MBURST_SINGLE |
+							 STM32_DMA_CR_PBURST_SINGLE | STM32_DMA_CR_TCIE);
+	dmaStreamSetFIFO(stream, STM32_DMA_FCR_FTH_HALF | STM32_DMA_FCR_DMDIS);
+	dmaStreamEnable(stream);
 }
 
-void OV9655_DeinitDMA(void)
+void OV2640_DeinitDMA(void)
 {
     const stm32_dma_stream_t *stream = STM32_DMA2_STREAM1;
     dmaStreamDisable(stream);
 }
 
-
 /**
   * Initializes DCMI
   */
-void OV9655_InitDCMI(void)
+void OV2640_InitDCMI(void)
 {
 	// Clock enable
 	RCC->AHB2ENR |= RCC_AHB2Periph_DCMI;
@@ -541,7 +462,7 @@ void OV9655_InitDCMI(void)
 	DCMI->CR |= (uint32_t)DCMI_CR_CAPTURE;
 }
 
-void OV9655_DeinitDCMI(void)
+void OV2640_DeinitDCMI(void)
 {
 	// Clock enable
 	RCC->AHB2ENR &= ~RCC_AHB2Periph_DCMI;
@@ -551,59 +472,59 @@ void OV9655_DeinitDCMI(void)
   * Initializes GPIO (for DCMI)
   * The high speed clock supports communication by I2C (XCLK = 16MHz)
   */
-void OV9655_InitGPIO(void)
+void OV2640_InitGPIO(void)
 {
 	palSetPadMode(GPIOA, 4, PAL_MODE_ALTERNATE(13)); // HSYNC -> PA4
 	palSetPadMode(GPIOA, 6, PAL_MODE_ALTERNATE(13)); // PCLK  -> PA6
 	palSetPadMode(GPIOB, 7, PAL_MODE_ALTERNATE(13)); // VSYNC -> PB7
+	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // D5    -> PB6
+	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // D4    -> PE4
+	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // D6    -> PE5
+	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // D7    -> PB6
 	palSetPadMode(GPIOC, 6, PAL_MODE_ALTERNATE(13)); // D0    -> PC6
 	palSetPadMode(GPIOC, 7, PAL_MODE_ALTERNATE(13)); // D1    -> PC7
 	palSetPadMode(GPIOC, 8, PAL_MODE_ALTERNATE(13)); // D2    -> PC8
-	palSetPadMode(GPIOE, 1, PAL_MODE_ALTERNATE(13)); // D3    -> PE1
-	palSetPadMode(GPIOE, 4, PAL_MODE_ALTERNATE(13)); // D4    -> PE4
-	palSetPadMode(GPIOB, 6, PAL_MODE_ALTERNATE(13)); // D5    -> PB6
-	palSetPadMode(GPIOE, 5, PAL_MODE_ALTERNATE(13)); // D6    -> PE5
-	palSetPadMode(GPIOE, 6, PAL_MODE_ALTERNATE(13)); // D7    -> PE6
+	palSetPadMode(GPIOC, 9, PAL_MODE_ALTERNATE(13)); // D3    -> PC9
 }
 
 /**
   * Setup a CLOCKOUT pin (PA8) which is needed by the camera (XCLK pin)
   */
-void OV9655_InitClockout(void)
+void OV2640_InitClockout(void)
 {
 	palSetPadMode(GPIOA, 8, PAL_MODE_ALTERNATE(0)); // PA8             -> XCLK
 }
 
 
-void OV9655_TransmitConfig(void) {
-	for(uint32_t i=0; i<sizeof(OV9655_CONFIG); i+=2) {
-		i2cAcquireBus(&I2CD2);
-		i2cMasterTransmitTimeout(&I2CD2, OV9655_I2C_ADR, &OV9655_CONFIG[i], 2, rxbuf, 0, MS2ST(100));
-		i2cReleaseBus(&I2CD2);
-		chThdSleepMilliseconds(10);
+void OV2640_TransmitConfig(void) {
+	for(uint32_t i=0; i<sizeof(OV2640_CONFIG); i+=2) {
+		i2cAcquireBus(&I2CD1);
+		i2cMasterTransmitTimeout(&I2CD1, OV2640_I2C_ADR, &OV2640_CONFIG[i], 2, NULL, 0, MS2ST(100));
+		i2cReleaseBus(&I2CD1);
+		chThdSleepMilliseconds(100);
 	}
 }
 
-void OV9655_init(void) {
-	OV9655_InitClockout();
-	OV9655_InitGPIO();
+void OV2640_init(void) {
+	OV2640_InitClockout();
+	OV2640_InitGPIO();
 
-	// Send settings to OV9655
-	OV9655_TransmitConfig();
+	// Send settings to OV2640
+	OV2640_TransmitConfig();
 
 	// DCMI DMA
-	OV9655_InitDMA();
+	OV2640_InitDMA();
 
 	// DCMI Init
-	OV9655_InitDCMI();
+	OV2640_InitDCMI();
 }
 
-void OV9655_deinit(void) {
+void OV2640_deinit(void) {
 	// DCMI Init
-	OV9655_DeinitDCMI();
+	OV2640_DeinitDCMI();
 
 	// DCMI DMA
-	OV9655_DeinitDMA();
+	OV2640_DeinitDMA();
 }
 
 /**
@@ -613,44 +534,40 @@ int main(void) {
 	halInit();
 	chSysInit();
 
+	palSetPadMode(GPIOE, 0, PAL_MODE_OUTPUT_PUSHPULL);
+	palClearPad(GPIOE, 0);
+
 	uint32_t i;
-	for(i=0; i<OV9655_BUFFER_SIZE; i++)
-		ov9655_ram_buffer[i] = 0;
+	for(i=0; i<OV2640_BUFFER_SIZE; i++)
+		ov2640_ram_buffer[i] = 0;
 
 	// Init LEDs
-	palSetPadMode(GPIOG, 13, PAL_MODE_OUTPUT_PUSHPULL);
-	palSetPadMode(GPIOG, 14, PAL_MODE_OUTPUT_PUSHPULL);
+	palSetPadMode(GPIOC, 13, PAL_MODE_OUTPUT_PUSHPULL);
+	palSetPadMode(GPIOC, 15, PAL_MODE_OUTPUT_PUSHPULL);
+	palSetPad(GPIOC, 13);
+	palSetPad(GPIOC, 15);
 
 	// Init I2C
-	i2cStart(&I2CD2, &i2cfg2);
+	palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN |
+                    PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_FLOATING);
+	palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN |
+                    PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_FLOATING);
+	i2cStart(&I2CD1, &i2cfg2);
 
 	// Init UART (2Mbit 8n1 TXD=PD5 RXD=PD6)
-	palSetPadMode(GPIOD, 5, PAL_MODE_ALTERNATE(7));
-	palSetPadMode(GPIOD, 6, PAL_MODE_ALTERNATE(7));
-	uartStart(&UARTD2, &uart_cfg_1);
+	palSetPadMode(GPIOA, 0, PAL_MODE_ALTERNATE(8));
+	palSetPadMode(GPIOA, 1, PAL_MODE_ALTERNATE(8));
+	uartStart(&UARTD4, &uart_cfg_1);
 
-	uartStartSend(&UARTD2, 5, ">>>>>");
+	uartStartSend(&UARTD4, 5, ">>>>>");
 
-	OV9655_init();
-	OV9655_Snapshot2RAM();	// Sample data from DCMI through DMA to RAM
-	OV9655_RAM2SD();		// Transmit image (JPEG-encoded) by serial to computer
+	OV2640_init();
+	OV2640_Snapshot2RAM();	// Sample data from DCMI through DMA to RAM
+	OV2640_RAM2SD();		// Transmit image (JPEG-encoded) by serial to computer
 
 	while (true) {
-		palTogglePad(GPIOG, 13); // Toogle LED (blinking)
+		palTogglePad(GPIOC, 13); // Toogle LED (blinking)
 		chThdSleepMilliseconds(100);
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
